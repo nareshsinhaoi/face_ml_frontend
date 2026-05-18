@@ -4,8 +4,8 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 
 const Login = () => {
-  const [email, setEmail] = useState('admin@modulelabs.in');
-  const [password, setPassword] = useState('Admin@123');
+  const [email, setEmail] = useState(''); //admin@modulelabs.in
+  const [password, setPassword] = useState(''); //Admin@123
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL;
