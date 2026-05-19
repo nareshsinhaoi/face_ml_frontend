@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Download, Calendar, Users, Clock, Activity, Camera } from 'lucide-react';
+import { Search, Download, Calendar, Users, Clock, Activity, Camera, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -7,108 +7,110 @@ import * as XLSX from 'xlsx';
 
 const Attendance = () => {
   const [records, setRecords] = useState([]);
-  const [filteredRecords, setFilteredRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState('all');
+  const [summaryData, setSummaryData] = useState([]);
+  const [employees, setEmployees] = useState([]);
+
+  // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState('');
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState('all');
-  const [summaryData, setSummaryData] = useState([]);
-  
-  // Pagination state
+
+  // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
-  // Pagination calculations
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredRecords.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredRecords.length / itemsPerPage);
+  const formatScanDate = (dateValue) => {
+    if (!dateValue) return '-';
+    // If it's already in YYYY-MM-DD format from database
+    if (typeof dateValue === 'string' && dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return dateValue;
+    }
+    // If it's ISO string or Date object
+    const date = new Date(dateValue);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
-  // Helper functions for date formatting (as stored in database)
-  // Helper functions for date formatting (as stored in database - IST)
-const formatScanDate = (dateValue) => {
-  if (!dateValue) return '-';
-  // If it's already in YYYY-MM-DD format from database
-  if (typeof dateValue === 'string' && dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
-    return dateValue;
-  }
-  // If it's ISO string or Date object
-  const date = new Date(dateValue);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+  // Format time as stored in database: 2026-05-19 3:07 PM
+  const formatScanTime = (dateTime) => {
+    if (!dateTime) return '-';
 
-// Format time as stored in database: 2026-05-19 3:07 PM
-const formatScanTime = (dateTime) => {
-  if (!dateTime) return '-';
-  
-  // Add 5.5 hours (IST offset) to UTC time
-  const date = new Date(dateTime);
-  const istOffset = 0;//5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
-  const istDate = new Date(date.getTime() + istOffset);
-  
-  const year = istDate.getUTCFullYear();
-  const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(istDate.getUTCDate()).padStart(2, '0');
-  let hours = istDate.getUTCHours();
-  const minutes = String(istDate.getUTCMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  
-  return `${year}-${month}-${day} ${hours}:${minutes} ${ampm}`;
-};
+    // Add 5.5 hours (IST offset) to UTC time
+    const date = new Date(dateTime);
+    const istOffset = 0;//5.5 * 60 * 60 * 1000; // 5.5 hours in milliseconds
+    const istDate = new Date(date.getTime() + istOffset);
 
-// Format full date time as: 5/19/2026, 3:07 PM
-const formatFullDateTime = (dateTime) => {
-  if (!dateTime) return '-';
-  const date = new Date(dateTime);
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const year = date.getFullYear();
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  return `${month}/${day}/${year}, ${hours}:${minutes} ${ampm}`;
-};
+    const year = istDate.getUTCFullYear();
+    const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(istDate.getUTCDate()).padStart(2, '0');
+    let hours = istDate.getUTCHours();
+    const minutes = String(istDate.getUTCMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
 
-  // Fetch all attendance records
+    return `${year}-${month}-${day} ${hours}:${minutes} ${ampm}`;
+  };
+
+  // Format full date time as: 5/19/2026, 3:07 PM
+  const formatFullDateTime = (dateTime) => {
+    if (!dateTime) return '-';
+    const date = new Date(dateTime);
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const year = date.getFullYear();
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${month}/${day}/${year}, ${hours}:${minutes} ${ampm}`;
+  };
+  // Fetch attendance records with server-side pagination
   const fetchAttendance = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      let url = `${API_URL}/attendance`;
-      
+      const params = new URLSearchParams({
+        page: currentPage,
+        limit: itemsPerPage,
+      });
+
       if (startDate && endDate) {
-        url += `?startDate=${startDate}&endDate=${endDate}`;
+        params.append('startDate', startDate);
+        params.append('endDate', endDate);
       }
       if (selectedEmployee) {
-        url += `${startDate && endDate ? '&' : '?'}employeeId=${selectedEmployee}`;
+        params.append('employeeId', selectedEmployee);
       }
-      
-      const response = await axios.get(url, {
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+
+      const response = await axios.get(`${API_URL}/attendance/paginated?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setRecords(response.data);
-      setFilteredRecords(response.data);
-      setCurrentPage(1);
+
+      setRecords(response.data.data);
+      setTotalPages(response.data.pagination.totalPages);
+      setTotalRecords(response.data.pagination.totalRecords);
     } catch (error) {
       console.error('Fetch error:', error);
       toast.error('Failed to fetch attendance records');
     } finally {
       setLoading(false);
     }
-  }, [API_URL, startDate, endDate, selectedEmployee]);
+  }, [API_URL, currentPage, itemsPerPage, startDate, endDate, selectedEmployee, searchTerm]);
 
   // Fetch employees list
   const fetchEmployees = useCallback(async () => {
@@ -152,53 +154,51 @@ const formatFullDateTime = (dateTime) => {
     } else {
       fetchDailySummary();
     }
-  }, [viewMode, fetchAttendance, fetchDailySummary]);
+  }, [viewMode, fetchAttendance, fetchDailySummary, currentPage, itemsPerPage, startDate, endDate, selectedEmployee, searchTerm]);
 
-  // Filter records based on search
+  // Reset to page 1 when filters change
   useEffect(() => {
     if (viewMode === 'all') {
-      let filtered = [...records];
-      
-      if (searchTerm) {
-        filtered = filtered.filter(record =>
-          record.employee_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          record.employee_id?.includes(searchTerm)
-        );
-      }
-      
-      setFilteredRecords(filtered);
       setCurrentPage(1);
+      fetchAttendance();
     }
-  }, [searchTerm, records, viewMode]);
+  }, [startDate, endDate, selectedEmployee, searchTerm, itemsPerPage]);
 
   // Export to Excel
-  const exportToExcel = () => {
-    let exportData;
-    
-    if (viewMode === 'all') {
-      exportData = filteredRecords.map(record => ({
+  const exportToExcel = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      let url = `${API_URL}/attendance`;
+      const params = [];
+
+      if (startDate && endDate) {
+        url += `?startDate=${startDate}&endDate=${endDate}`;
+      }
+      if (selectedEmployee) {
+        url += `${startDate && endDate ? '&' : '?'}employeeId=${selectedEmployee}`;
+      }
+
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const allRecords = response.data;
+      const exportData = allRecords.map(record => ({
         'Employee ID': record.employee_id,
         'Employee Name': record.employee_name,
-        'Scan Date': formatScanDate(record.scan_date),
+        'Scan Date': record.scan_date,
         'Scan Time': record.scan_time ? formatScanTime(record.scan_time) : '-',
         'Full Date Time': record.scan_time ? formatFullDateTime(record.scan_time) : '-'
       }));
-    } else {
-      exportData = summaryData.map(item => ({
-        'Employee ID': item.employee_id,
-        'Employee Name': item.employee_name,
-        'Scan Count': item.scan_count,
-        'First Scan': item.first_scan ? new Date(item.first_scan).toLocaleTimeString() : '-',
-        'Last Scan': item.last_scan ? new Date(item.last_scan).toLocaleTimeString() : '-'
-      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'All Scans');
+      XLSX.writeFile(wb, `attendance_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Report exported successfully');
+    } catch (error) {
+      toast.error('Failed to export');
     }
-    
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    const sheetName = viewMode === 'all' ? 'All Scans' : 'Daily Summary';
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, `attendance_${new Date().toISOString().split('T')[0]}.xlsx`);
-    toast.success('Report exported successfully');
   };
 
   // Pagination handlers
@@ -221,7 +221,7 @@ const formatFullDateTime = (dateTime) => {
   const getPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
-    
+
     if (totalPages <= maxVisible) {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
@@ -276,11 +276,10 @@ const formatFullDateTime = (dateTime) => {
             <div className="flex space-x-2">
               <button
                 onClick={() => setViewMode('all')}
-                className={`px-4 py-2 rounded-lg transition text-sm ${
-                  viewMode === 'all' 
-                    ? 'bg-blue-600 text-white' 
+                className={`px-4 py-2 rounded-lg transition text-sm ${viewMode === 'all'
+                    ? 'bg-blue-600 text-white'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
+                  }`}
               >
                 <Activity className="w-4 h-4 inline mr-1" />
                 <span className="hidden sm:inline">All Scans</span>
@@ -288,11 +287,10 @@ const formatFullDateTime = (dateTime) => {
               </button>
               <button
                 onClick={() => setViewMode('summary')}
-                className={`px-4 py-2 rounded-lg transition text-sm ${
-                  viewMode === 'summary' 
-                    ? 'bg-blue-600 text-white' 
+                className={`px-4 py-2 rounded-lg transition text-sm ${viewMode === 'summary'
+                    ? 'bg-blue-600 text-white'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
+                  }`}
               >
                 <Users className="w-4 h-4 inline mr-1" />
                 <span className="hidden sm:inline">Daily Summary</span>
@@ -314,7 +312,7 @@ const formatFullDateTime = (dateTime) => {
                 </svg>
               </button>
             </div>
-            
+
             <div id="mobileMenu" className="hidden space-y-2">
               <div className="flex flex-col space-y-2">
                 <button
@@ -343,11 +341,10 @@ const formatFullDateTime = (dateTime) => {
                     setViewMode('all');
                     document.getElementById('mobileMenu').classList.add('hidden');
                   }}
-                  className={`flex-1 px-4 py-2 rounded-lg transition text-sm ${
-                    viewMode === 'all' 
-                      ? 'bg-blue-600 text-white' 
+                  className={`flex-1 px-4 py-2 rounded-lg transition text-sm ${viewMode === 'all'
+                      ? 'bg-blue-600 text-white'
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
+                    }`}
                 >
                   <Activity className="w-4 h-4 inline mr-1" />
                   All Scans
@@ -357,11 +354,10 @@ const formatFullDateTime = (dateTime) => {
                     setViewMode('summary');
                     document.getElementById('mobileMenu').classList.add('hidden');
                   }}
-                  className={`flex-1 px-4 py-2 rounded-lg transition text-sm ${
-                    viewMode === 'summary' 
-                      ? 'bg-blue-600 text-white' 
+                  className={`flex-1 px-4 py-2 rounded-lg transition text-sm ${viewMode === 'summary'
+                      ? 'bg-blue-600 text-white'
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
+                    }`}
                 >
                   <Users className="w-4 h-4 inline mr-1" />
                   Daily Summary
@@ -388,7 +384,7 @@ const formatFullDateTime = (dateTime) => {
                 />
               </div>
             )}
-            
+
             <select
               value={selectedEmployee}
               onChange={(e) => setSelectedEmployee(e.target.value)}
@@ -399,7 +395,7 @@ const formatFullDateTime = (dateTime) => {
                 <option key={emp.id} value={emp.employee_id}>{emp.name} ({emp.employee_id})</option>
               ))}
             </select>
-            
+
             <input
               type="date"
               value={startDate}
@@ -407,7 +403,7 @@ const formatFullDateTime = (dateTime) => {
               className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Start Date"
             />
-            
+
             <input
               type="date"
               value={endDate}
@@ -416,7 +412,7 @@ const formatFullDateTime = (dateTime) => {
               placeholder="End Date"
             />
           </div>
-          
+
           <div className="flex justify-between items-center mt-4">
             {viewMode === 'summary' && (
               <p className="text-sm text-gray-500 flex items-center">
@@ -476,26 +472,24 @@ const formatFullDateTime = (dateTime) => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {currentItems.map((record) => (
+                    {records.map((record) => (
                       <tr key={record.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm text-gray-900">#{record.id} </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{record.id}</td>
                         <td className="px-6 py-4 text-sm text-gray-900">{record.employee_id}</td>
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">{record.employee_name}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{formatScanDate(record.scan_date)}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">
-                          {formatScanDate(record.scan_date)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">
-                         {record.scan_time ? formatScanTime(record.scan_time) : '-'}
+                          {formatScanTime(record.scan_time)}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
-                          {record.scan_time ? formatFullDateTime(record.scan_time) : '-'}
+                          {formatFullDateTime(record.scan_time)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                
-                {filteredRecords.length === 0 && (
+
+                {records.length === 0 && (
                   <div className="text-center py-8 text-gray-500">
                     <Activity className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     No scan records found
@@ -503,27 +497,27 @@ const formatFullDateTime = (dateTime) => {
                 )}
               </div>
 
-              {/* Pagination */}
-              {filteredRecords.length > 0 && (
+              {/* Server-side Pagination */}
+              {totalRecords > 0 && (
                 <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
                   <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                     <div className="text-sm text-gray-600">
-                      Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredRecords.length)} of {filteredRecords.length} entries
+                      Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
                     </div>
-                    
+
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={goToPreviousPage}
                         disabled={currentPage === 1}
-                        className={`px-3 py-1 rounded-md flex items-center ${
-                          currentPage === 1
+                        className={`px-3 py-1 rounded-md flex items-center ${currentPage === 1
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                             : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                        }`}
+                          }`}
                       >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
                         Previous
                       </button>
-                      
+
                       {/* Page Numbers - Desktop */}
                       <div className="hidden sm:flex space-x-1">
                         {getPageNumbers().map((page, index) => (
@@ -533,33 +527,32 @@ const formatFullDateTime = (dateTime) => {
                             <button
                               key={page}
                               onClick={() => goToPage(page)}
-                              className={`px-3 py-1 rounded-md ${
-                                currentPage === page
+                              className={`px-3 py-1 rounded-md ${currentPage === page
                                   ? 'bg-blue-600 text-white'
                                   : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                              }`}
+                                }`}
                             >
                               {page}
                             </button>
                           )
                         ))}
                       </div>
-                      
+
                       {/* Page Numbers - Mobile */}
                       <div className="sm:hidden text-sm text-gray-600">
                         Page {currentPage} of {totalPages}
                       </div>
-                      
+
                       <button
                         onClick={goToNextPage}
                         disabled={currentPage === totalPages}
-                        className={`px-3 py-1 rounded-md flex items-center ${
-                          currentPage === totalPages
+                        className={`px-3 py-1 rounded-md flex items-center ${currentPage === totalPages
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                             : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                        }`}
+                          }`}
                       >
                         Next
+                        <ChevronRight className="w-4 h-4 ml-1" />
                       </button>
                     </div>
                   </div>
@@ -588,7 +581,7 @@ const formatFullDateTime = (dateTime) => {
                           <Clock className="w-3 h-3 mr-1" />
                           {item.scan_count} scan{item.scan_count !== 1 ? 's' : ''}
                         </span>
-                       </td>
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {item.first_scan ? formatFullDateTime(item.first_scan) : '-'}
                       </td>
@@ -599,7 +592,7 @@ const formatFullDateTime = (dateTime) => {
                   ))}
                 </tbody>
               </table>
-              
+
               {summaryData.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
@@ -609,15 +602,6 @@ const formatFullDateTime = (dateTime) => {
             </div>
           )}
         </div>
-
-        {/* Stats Footer */}
-        {viewMode === 'all' && filteredRecords.length > 0 && (
-          <div className="mt-4 bg-gray-50 rounded-lg p-3 text-center">
-            <p className="text-sm text-gray-600">
-              Total Scans: <span className="font-semibold text-blue-600">{filteredRecords.length}</span>
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

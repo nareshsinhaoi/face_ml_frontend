@@ -8,7 +8,6 @@ import * as faceapi from 'face-api.js';
 
 const Employees = () => {
   const [employees, setEmployees] = useState([]);
-  const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showFaceModal, setShowFaceModal] = useState(false);
@@ -21,6 +20,8 @@ const Employees = () => {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
   
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -32,48 +33,45 @@ const Employees = () => {
   });
   
   const navigate = useNavigate();
-  const API_URL = process.env.REACT_APP_API_URL;
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
-  // Pagination calculations
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredEmployees.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
-
+  // Fetch employees with server-side pagination
   const fetchEmployees = useCallback(async () => {
+    setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/employees`, {
+      const params = new URLSearchParams({
+        page: currentPage,
+        limit: itemsPerPage,
+      });
+      
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+      
+      const response = await axios.get(`${API_URL}/employees/paginated?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setEmployees(response.data);
-      setFilteredEmployees(response.data);
+      
+      setEmployees(response.data.data);
+      setTotalPages(response.data.pagination.totalPages);
+      setTotalRecords(response.data.pagination.totalRecords);
     } catch (error) {
+      console.error('Fetch error:', error);
       toast.error('Failed to fetch employees');
+    } finally {
+      setLoading(false);
     }
-  }, [API_URL]);
+  }, [API_URL, currentPage, itemsPerPage, searchTerm]);
 
-  const filterEmployees = useCallback(() => {
-    if (!searchTerm) {
-      setFilteredEmployees(employees);
-    } else {
-      const filtered = employees.filter(emp =>
-        emp.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        emp.employee_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        emp.email?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredEmployees(filtered);
-    }
-    setCurrentPage(1); // Reset to first page when search changes
-  }, [searchTerm, employees]);
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchEmployees();
-  }, [fetchEmployees]);
-
-  useEffect(() => {
-    filterEmployees();
-  }, [filterEmployees]);
+  }, [fetchEmployees, currentPage, itemsPerPage, searchTerm]);
 
   const loadFaceModels = async () => {
     try {
@@ -202,6 +200,33 @@ const Employees = () => {
     setCurrentPage(page);
   };
 
+  // Generate page numbers
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      if (currentPage <= 3) {
+        for (let i = 1; i <= 4; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1);
+        pages.push('...');
+        for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = currentPage - 1; i <= currentPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(totalPages);
+      }
+    }
+    return pages;
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-white shadow-lg">
@@ -326,157 +351,164 @@ const Employees = () => {
           </div>
         </div>
 
-        {/* Table - Responsive with horizontal scroll on mobile */}
+        {/* Table */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Email</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Position</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Face Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {currentItems.map((employee) => (
-                  <tr key={employee.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 text-sm text-gray-900">{employee.employee_id}</td>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{employee.name}</td>
-                    <td className="px-4 py-4 text-sm text-gray-600 hidden sm:table-cell">{employee.email}</td>
-                    <td className="px-4 py-4 text-sm text-gray-600 hidden md:table-cell">{employee.position}</td>
-                    <td className="px-4 py-4">
-                      {employee.face_descriptor ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Registered
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 whitespace-nowrap">
-                          <XCircle className="w-3 h-3 mr-1" />
-                          Not Registered
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 text-sm space-x-2 whitespace-nowrap">
-                      {!employee.face_descriptor && (
-                        <button
-                          onClick={() => {
-                            setSelectedEmployee(employee);
-                            setShowFaceModal(true);
-                          }}
-                          className="text-green-600 hover:text-green-900"
-                          title="Register Face"
-                        >
-                          <Camera className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          setEditingEmployee(employee);
-                          setFormData(employee);
-                          setShowModal(true);
-                        }}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Edit"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(employee.id)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Empty State */}
-          {filteredEmployees.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
-              No employees found
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-2 text-gray-600">Loading employees...</p>
             </div>
-          )}
-
-          {/* Pagination */}
-          {filteredEmployees.length > 0 && (
-            <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="text-sm text-gray-600">
-                  Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredEmployees.length)} of {filteredEmployees.length} entries
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={goToPreviousPage}
-                    disabled={currentPage === 1}
-                    className={`px-3 py-1 rounded-md flex items-center ${
-                      currentPage === 1
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                    }`}
-                  >
-                    <ChevronLeft className="w-4 h-4 mr-1" />
-                    Previous
-                  </button>
-                  
-                  {/* Page Numbers - Desktop */}
-                  <div className="hidden sm:flex space-x-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum;
-                      if (totalPages <= 5) {
-                        pageNum = i + 1;
-                      } else if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
-                      
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => goToPage(pageNum)}
-                          className={`px-3 py-1 rounded-md ${
-                            currentPage === pageNum
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  
-                  {/* Page Numbers - Mobile (simplified) */}
-                  <div className="sm:hidden text-sm text-gray-600">
-                    Page {currentPage} of {totalPages}
-                  </div>
-                  
-                  <button
-                    onClick={goToNextPage}
-                    disabled={currentPage === totalPages}
-                    className={`px-3 py-1 rounded-md flex items-center ${
-                      currentPage === totalPages
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                    }`}
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4 ml-1" />
-                  </button>
-                </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Email</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Position</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Face Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {employees.map((employee) => (
+                      <tr key={employee.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-4 text-sm text-gray-900">{employee.employee_id}</td>
+                        <td className="px-4 py-4 text-sm font-medium text-gray-900">{employee.name}</td>
+                        <td className="px-4 py-4 text-sm text-gray-600 hidden sm:table-cell">{employee.email}</td>
+                        <td className="px-4 py-4 text-sm text-gray-600 hidden md:table-cell">{employee.position}</td>
+                        <td className="px-4 py-4">
+                          {employee.face_descriptor ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Registered
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 whitespace-nowrap">
+                              <XCircle className="w-3 h-3 mr-1" />
+                              Not Registered
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-sm space-x-2 whitespace-nowrap">
+                          {!employee.face_descriptor && (
+                            <button
+                              onClick={() => {
+                                setSelectedEmployee(employee);
+                                setShowFaceModal(true);
+                              }}
+                              className="text-green-600 hover:text-green-900"
+                              title="Register Face"
+                            >
+                              <Camera className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setEditingEmployee(employee);
+                              setFormData({
+                                employeeId: employee.employee_id,
+                                name: employee.name,
+                                email: employee.email,
+                                position: employee.position,
+                                department: employee.department,
+                                phone: employee.phone
+                              });
+                              setShowModal(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Edit"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(employee.id)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
+
+              {/* Empty State */}
+              {employees.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No employees found
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalRecords > 0 && (
+                <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
+                  <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <div className="text-sm text-gray-600">
+                      Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={goToPreviousPage}
+                        disabled={currentPage === 1}
+                        className={`px-3 py-1 rounded-md flex items-center ${
+                          currentPage === 1
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                        }`}
+                      >
+                        <ChevronLeft className="w-4 h-4 mr-1" />
+                        Previous
+                      </button>
+                      
+                      {/* Page Numbers - Desktop */}
+                      <div className="hidden sm:flex space-x-1">
+                        {getPageNumbers().map((page, index) => (
+                          page === '...' ? (
+                            <span key={`dots-${index}`} className="px-3 py-1 text-gray-500">...</span>
+                          ) : (
+                            <button
+                              key={page}
+                              onClick={() => goToPage(page)}
+                              className={`px-3 py-1 rounded-md ${
+                                currentPage === page
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          )
+                        ))}
+                      </div>
+                      
+                      {/* Page Numbers - Mobile */}
+                      <div className="sm:hidden text-sm text-gray-600">
+                        Page {currentPage} of {totalPages}
+                      </div>
+                      
+                      <button
+                        onClick={goToNextPage}
+                        disabled={currentPage === totalPages}
+                        className={`px-3 py-1 rounded-md flex items-center ${
+                          currentPage === totalPages
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                        }`}
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
