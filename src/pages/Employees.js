@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Edit, Trash2, Camera, CheckCircle, XCircle, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Camera, CheckCircle, XCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -17,6 +17,11 @@ const Employees = () => {
   const [loading, setLoading] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const webcamRef = useRef(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  
   const [formData, setFormData] = useState({
     employeeId: '',
     name: '',
@@ -25,8 +30,15 @@ const Employees = () => {
     department: '',
     phone: ''
   });
+  
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL;
+
+  // Pagination calculations
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredEmployees.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -52,6 +64,7 @@ const Employees = () => {
       );
       setFilteredEmployees(filtered);
     }
+    setCurrentPage(1); // Reset to first page when search changes
   }, [searchTerm, employees]);
 
   useEffect(() => {
@@ -176,9 +189,22 @@ const Employees = () => {
 
   const departments = ['HR', 'Engineering', 'Sales', 'Marketing', 'Finance', 'Operations'];
 
+  // Pagination handlers
+  const goToPreviousPage = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1));
+  };
+
+  const goToNextPage = () => {
+    setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  };
+
+  const goToPage = (page) => {
+    setCurrentPage(page);
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
-            <nav className="bg-white shadow-lg">
+      <nav className="bg-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-3">
           {/* Desktop Navigation */}
           <div className="hidden md:flex justify-between items-center">
@@ -268,8 +294,9 @@ const Employees = () => {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="mb-6">
-          <div className="relative">
+        {/* Search and Items Per Page */}
+        <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
+          <div className="relative w-full sm:w-96">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
@@ -279,80 +306,185 @@ const Employees = () => {
               className="w-full pl-10 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-600">Show:</label>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+            <span className="text-sm text-gray-600">entries</span>
+          </div>
         </div>
 
+        {/* Table - Responsive with horizontal scroll on mobile */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Position</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Face Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredEmployees.map((employee) => (
-                <tr key={employee.id}>
-                  <td className="px-6 py-4 text-sm text-gray-900">{employee.employee_id}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{employee.name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{employee.email}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{employee.position}</td>
-                  <td className="px-6 py-4">
-                    {employee.face_descriptor ? (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Registered
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                        <XCircle className="w-3 h-3 mr-1" />
-                        Not Registered
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm space-x-2">
-                    {!employee.face_descriptor && (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Email</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Position</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Face Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {currentItems.map((employee) => (
+                  <tr key={employee.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-4 text-sm text-gray-900">{employee.employee_id}</td>
+                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{employee.name}</td>
+                    <td className="px-4 py-4 text-sm text-gray-600 hidden sm:table-cell">{employee.email}</td>
+                    <td className="px-4 py-4 text-sm text-gray-600 hidden md:table-cell">{employee.position}</td>
+                    <td className="px-4 py-4">
+                      {employee.face_descriptor ? (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Registered
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 whitespace-nowrap">
+                          <XCircle className="w-3 h-3 mr-1" />
+                          Not Registered
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-sm space-x-2 whitespace-nowrap">
+                      {!employee.face_descriptor && (
+                        <button
+                          onClick={() => {
+                            setSelectedEmployee(employee);
+                            setShowFaceModal(true);
+                          }}
+                          className="text-green-600 hover:text-green-900"
+                          title="Register Face"
+                        >
+                          <Camera className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => {
-                          setSelectedEmployee(employee);
-                          setShowFaceModal(true);
+                          setEditingEmployee(employee);
+                          setFormData(employee);
+                          setShowModal(true);
                         }}
-                        className="text-green-600 hover:text-green-900"
-                        title="Register Face"
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Edit"
                       >
-                        <Camera className="w-4 h-4" />
+                        <Edit className="w-4 h-4" />
                       </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setEditingEmployee(employee);
-                        setFormData(employee);
-                        setShowModal(true);
-                      }}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(employee.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <button
+                        onClick={() => handleDelete(employee.id)}
+                        className="text-red-600 hover:text-red-900"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Empty State */}
+          {filteredEmployees.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No employees found
+            </div>
+          )}
+
+          {/* Pagination */}
+          {filteredEmployees.length > 0 && (
+            <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div className="text-sm text-gray-600">
+                  Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredEmployees.length)} of {filteredEmployees.length} entries
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={goToPreviousPage}
+                    disabled={currentPage === 1}
+                    className={`px-3 py-1 rounded-md flex items-center ${
+                      currentPage === 1
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                    }`}
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Previous
+                  </button>
+                  
+                  {/* Page Numbers - Desktop */}
+                  <div className="hidden sm:flex space-x-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => goToPage(pageNum)}
+                          className={`px-3 py-1 rounded-md ${
+                            currentPage === pageNum
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Page Numbers - Mobile (simplified) */}
+                  <div className="sm:hidden text-sm text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  
+                  <button
+                    onClick={goToNextPage}
+                    disabled={currentPage === totalPages}
+                    className={`px-3 py-1 rounded-md flex items-center ${
+                      currentPage === totalPages
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                    }`}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md w-full">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">{editingEmployee ? 'Edit Employee' : 'Add Employee'}</h2>
             <form onSubmit={handleSubmit}>
               <div className="space-y-4">
@@ -361,7 +493,7 @@ const Employees = () => {
                   placeholder="Employee ID"
                   value={formData.employeeId}
                   onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                   disabled={!!editingEmployee}
                 />
@@ -370,7 +502,7 @@ const Employees = () => {
                   placeholder="Full Name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
                 <input
@@ -378,7 +510,7 @@ const Employees = () => {
                   placeholder="Email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                   disabled={!!editingEmployee}
                 />
@@ -387,13 +519,13 @@ const Employees = () => {
                   placeholder="Position"
                   value={formData.position}
                   onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
                 <select
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 >
                   <option value="">Select Department</option>
@@ -406,7 +538,7 @@ const Employees = () => {
                   placeholder="Phone Number"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
@@ -424,7 +556,7 @@ const Employees = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {loading ? 'Processing...' : editingEmployee ? 'Update' : 'Save'}
                 </button>
@@ -434,9 +566,10 @@ const Employees = () => {
         </div>
       )}
 
+      {/* Face Registration Modal */}
       {showFaceModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-2xl w-full">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Register Face - {selectedEmployee.name}</h2>
             <div className="mb-4">
               <div className="bg-gray-100 rounded-lg p-4 mb-4">
@@ -462,7 +595,7 @@ const Employees = () => {
               <button
                 onClick={registerFace}
                 disabled={loading || !modelsLoaded}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
               >
                 {loading ? 'Registering...' : 'Register Face'}
               </button>
