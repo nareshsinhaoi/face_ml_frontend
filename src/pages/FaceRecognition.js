@@ -56,14 +56,14 @@ const FaceRecognition = () => {
     }
   }, []);
 
-  // Show temporary success/error message
+  // Show temporary success/error message with line break support
   const showTemporaryMessage = useCallback((msg, type = 'success') => {
     setMessage(msg);
     setMessageType(type);
     setShowMessage(true);
     setTimeout(() => {
       setShowMessage(false);
-    }, 4000);
+    }, 5000); // Increased to 5 seconds for better readability
   }, []);
 
   // Auto scan face
@@ -88,22 +88,23 @@ const FaceRecognition = () => {
         faceDescriptor: Array.from(faceDescriptor)
       });
 
-      const { employee, scanTime, scanCount: count, message: responseMessage } = response.data;
+      const { employee, scanTime, scanCount: count, message: responseMessage, toastMessage, formattedTime, formattedDate } = response.data;
       
       setLastAttendance({
         employee: employee.name,
         time: new Date(scanTime),
-        scanCount: count
+        scanCount: count,
+        formattedTime: formattedTime,
+        formattedDate: formattedDate
       });
       
       setScanCount(count);
       
-      showTemporaryMessage(
-        `✅ ${responseMessage || `Hello ${employee.name}! Scan recorded at ${new Date(scanTime).toLocaleTimeString()}`}`,
-        'success'
-      );
+      // Show the formatted message with line breaks
+      showTemporaryMessage(responseMessage, 'success');
       
-      toast.success(`Scan recorded for ${employee.name}`);
+      // Show toast notification (single line)
+      toast.success(toastMessage || `Scan recorded for ${employee.name}`);
       
       // Reset scanning state after 3 seconds
       setTimeout(() => {
@@ -171,14 +172,14 @@ const FaceRecognition = () => {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Floating Message */}
+        {/* Floating Message with Line Break Support */}
         {showMessage && (
           <div className={`fixed top-24 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300 ${
             messageType === 'success' ? 'bg-green-500' : 'bg-red-500'
-          } text-white px-6 py-3 rounded-lg shadow-lg animate-bounce`}>
-            <div className="flex items-center space-x-2">
-              {messageType === 'success' ? <Smile className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-              <span className="font-medium">{message}</span>
+          } text-white px-6 py-4 rounded-lg shadow-lg max-w-md`}>
+            <div className="flex items-start space-x-3">
+              {messageType === 'success' ? <Smile className="w-5 h-5 mt-0.5 flex-shrink-0" /> : <XCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />}
+              <div className="whitespace-pre-line text-sm font-medium">{message}</div>
             </div>
           </div>
         )}
@@ -253,14 +254,14 @@ const FaceRecognition = () => {
               </div>
               <div className="flex-1">
                 <h3 className="font-semibold text-green-800">Last Scan</h3>
-                <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 text-sm">
                   <div>
                     <p className="text-green-700">👤 Employee: {lastAttendance.employee}</p>
                     <p className="text-green-700">📊 Today's Scans: {lastAttendance.scanCount}</p>
                   </div>
                   <div>
-                    <p className="text-green-700">⏰ Time: {lastAttendance.time.toLocaleTimeString()}</p>
-                    <p className="text-green-700">📅 Date: {lastAttendance.time.toLocaleDateString()}</p>
+                    <p className="text-green-700">⏰ Time: {lastAttendance.formattedTime || lastAttendance.time?.toLocaleTimeString()}</p>
+                    <p className="text-green-700">📅 Date: {lastAttendance.formattedDate || lastAttendance.time?.toLocaleDateString()}</p>
                   </div>
                 </div>
               </div>
