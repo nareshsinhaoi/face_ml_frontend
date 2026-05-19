@@ -143,9 +143,11 @@ const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
+            {/* Header */}
       <nav className="bg-white shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex justify-between items-center">
             <div className="flex items-center space-x-4">
               <button
                 onClick={() => navigate('/')}
@@ -161,7 +163,7 @@ const navigate = useNavigate();
               </button>
               <button
                 onClick={() => navigate('/face-recognition')}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-lg hover:from-green-600 hover:to-green-700 flex items-center transition"
+                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-lg hover:from-green-600 hover:to-green-700 flex items-center transition text-sm"
               >
                 <Camera className="w-4 h-4 mr-2" />
                 Face Recognition
@@ -171,26 +173,97 @@ const navigate = useNavigate();
             <div className="flex space-x-2">
               <button
                 onClick={() => setViewMode('all')}
-                className={`px-4 py-2 rounded-lg transition ${
+                className={`px-4 py-2 rounded-lg transition text-sm ${
                   viewMode === 'all' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                 }`}
               >
                 <Activity className="w-4 h-4 inline mr-1" />
-                All Scans
+                <span className="hidden sm:inline">All Scans</span>
+                <span className="sm:hidden">All</span>
               </button>
               <button
                 onClick={() => setViewMode('summary')}
-                className={`px-4 py-2 rounded-lg transition ${
+                className={`px-4 py-2 rounded-lg transition text-sm ${
                   viewMode === 'summary' 
                     ? 'bg-blue-600 text-white' 
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                 }`}
               >
                 <Users className="w-4 h-4 inline mr-1" />
-                Daily Summary
+                <span className="hidden sm:inline">Daily Summary</span>
+                <span className="sm:hidden">Summary</span>
               </button>
+            </div>
+          </div>
+
+          {/* Mobile Navigation */}
+          <div className="md:hidden">
+            <div className="flex justify-between items-center mb-3">
+              <h1 className="text-xl font-bold text-gray-800">Attendance Records</h1>
+              <button
+                onClick={() => document.getElementById('mobileMenu').classList.toggle('hidden')}
+                className="text-gray-600 hover:text-gray-900 focus:outline-none"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            </div>
+            
+            <div id="mobileMenu" className="hidden space-y-2">
+              <div className="flex flex-col space-y-2">
+                <button
+                  onClick={() => navigate('/')}
+                  className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium text-left"
+                >
+                  Dashboard
+                </button>
+                <button
+                  onClick={() => navigate('/employees')}
+                  className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium text-left"
+                >
+                  Employees
+                </button>
+                <button
+                  onClick={() => navigate('/face-recognition')}
+                  className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-lg hover:from-green-600 hover:to-green-700 flex items-center justify-center transition text-sm"
+                >
+                  <Camera className="w-4 h-4 mr-2" />
+                  Face Recognition
+                </button>
+              </div>
+              <div className="flex space-x-2 pt-2 border-t border-gray-200">
+                <button
+                  onClick={() => {
+                    setViewMode('all');
+                    document.getElementById('mobileMenu').classList.add('hidden');
+                  }}
+                  className={`flex-1 px-4 py-2 rounded-lg transition text-sm ${
+                    viewMode === 'all' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  <Activity className="w-4 h-4 inline mr-1" />
+                  All Scans
+                </button>
+                <button
+                  onClick={() => {
+                    setViewMode('summary');
+                    document.getElementById('mobileMenu').classList.add('hidden');
+                  }}
+                  className={`flex-1 px-4 py-2 rounded-lg transition text-sm ${
+                    viewMode === 'summary' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  <Users className="w-4 h-4 inline mr-1" />
+                  Daily Summary
+                </button>
+              </div>
             </div>
           </div>
         </div>
