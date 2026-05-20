@@ -4,7 +4,7 @@ import * as faceapi from 'face-api.js';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Smile, Clock, Users, Activity } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Smile, Clock, Users, Activity, ZoomIn } from 'lucide-react';
 
 const FaceRecognition = () => {
   const webcamRef = useRef(null);
@@ -16,9 +16,19 @@ const FaceRecognition = () => {
   const [messageType, setMessageType] = useState('success');
   const [scanCount, setScanCount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [faceDistance, setFaceDistance] = useState(null);
+  const [isFaceClose, setIsFaceClose] = useState(false);
+  const [faceBox, setFaceBox] = useState(null);
   const navigate = useNavigate();
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  
+  // Distance threshold - adjust these values as needed
+  const DISTANCE_THRESHOLD = {
+    CLOSE: 200,    // Face area > 20000 pixels = very close
+    MEDIUM: 100,   // Face area > 10000 pixels = medium distance
+    FAR: 50        // Face area < 5000 pixels = too far
+  };
 
   // Load face recognition models
   useEffect(() => {
@@ -29,7 +39,7 @@ const FaceRecognition = () => {
         await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
         await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
         setModelsLoaded(true);
-        toast.success('Face recognition ready!', { id: 'loading' });
+        toast.success('Face recognition ready! Come closer to camera', { id: 'loading' });
       } catch (error) {
         console.error('Failed to load models:', error);
         toast.error('Failed to load face models', { id: 'loading' });
@@ -38,8 +48,47 @@ const FaceRecognition = () => {
     loadModels();
   }, []);
 
-  // Get face descriptor from webcam
-  const getFaceDescriptor = useCallback(async () => {
+  // Calculate face distance based on bounding box area
+  const calculateFaceDistance = (detection) => {
+    if (!detection || !detection.detection || !detection.detection.box) {
+      return null;
+    }
+    
+    const box = detection.detection.box;
+    const area = box.width * box.height;
+    setFaceBox(box);
+    
+    // Determine distance level
+    let distanceInfo = {
+      area: area,
+      isClose: false,
+      level: 'far',
+      message: 'Come closer to camera'
+    };
+    
+    if (area >= DISTANCE_THRESHOLD.CLOSE) {
+      distanceInfo.isClose = true;
+      distanceInfo.level = 'close';
+      distanceInfo.message = 'Perfect! Face detected';
+    } else if (area >= DISTANCE_THRESHOLD.MEDIUM) {
+      distanceInfo.isClose = false;
+      distanceInfo.level = 'medium';
+      distanceInfo.message = 'Come a bit closer';
+    } else if (area >= DISTANCE_THRESHOLD.FAR) {
+      distanceInfo.isClose = false;
+      distanceInfo.level = 'far';
+      distanceInfo.message = 'Please move closer to camera';
+    } else {
+      distanceInfo.isClose = false;
+      distanceInfo.level = 'tooFar';
+      distanceInfo.message = 'Too far! Move closer';
+    }
+    
+    return distanceInfo;
+  };
+
+  // Get face descriptor and distance from webcam
+  const getFaceInfo = useCallback(async () => {
     const video = webcamRef.current?.video;
     if (!video || video.readyState !== 4) return null;
     
@@ -49,24 +98,34 @@ const FaceRecognition = () => {
         new faceapi.TinyFaceDetectorOptions()
       ).withFaceLandmarks().withFaceDescriptor();
       
-      return detection?.descriptor;
+      if (detection) {
+        const distanceInfo = calculateFaceDistance(detection);
+        setFaceDistance(distanceInfo);
+        setIsFaceClose(distanceInfo?.isClose || false);
+        return { descriptor: detection.descriptor, distanceInfo };
+      } else {
+        setFaceDistance(null);
+        setIsFaceClose(false);
+        setFaceBox(null);
+        return null;
+      }
     } catch (error) {
       console.error('Face detection error:', error);
       return null;
     }
   }, []);
 
-  // Show temporary success/error message with line break support
+  // Show temporary success/error message
   const showTemporaryMessage = useCallback((msg, type = 'success') => {
     setMessage(msg);
     setMessageType(type);
     setShowMessage(true);
     setTimeout(() => {
       setShowMessage(false);
-    }, 5000); // Increased to 5 seconds for better readability
+    }, 5000);
   }, []);
 
-  // Auto scan face
+  // Auto scan face - only when face is close enough
   const autoScanFace = useCallback(async () => {
     if (!modelsLoaded || isProcessing || isScanning) {
       return;
@@ -75,9 +134,31 @@ const FaceRecognition = () => {
     setIsProcessing(true);
 
     try {
-      const faceDescriptor = await getFaceDescriptor();
+      const faceInfo = await getFaceInfo();
       
-      if (!faceDescriptor) {
+      if (!faceInfo || !faceInfo.descriptor) {
+        setIsProcessing(false);
+        return;
+      }
+      
+      // Only proceed if face is close enough
+      if (!faceInfo.distanceInfo?.isClose) {
+        // Show different messages based on distance
+        let distanceMessage = '';
+        switch (faceInfo.distanceInfo?.level) {
+          case 'far':
+            distanceMessage = 'Please move closer to the camera for accurate recognition';
+            break;
+          case 'medium':
+            distanceMessage = 'Come a bit closer - face too far for recognition';
+            break;
+          case 'tooFar':
+            distanceMessage = 'Too far! Please move much closer to the camera';
+            break;
+          default:
+            distanceMessage = 'Please come closer to the camera';
+        }
+        showTemporaryMessage(`📷 ${distanceMessage}`, 'error');
         setIsProcessing(false);
         return;
       }
@@ -85,25 +166,20 @@ const FaceRecognition = () => {
       setIsScanning(true);
 
       const response = await axios.post(`${API_URL}/attendance/recognize`, {
-        faceDescriptor: Array.from(faceDescriptor)
+        faceDescriptor: Array.from(faceInfo.descriptor)
       });
 
-      const { employee, scanTime, scanCount: count, message: responseMessage, toastMessage, formattedTime, formattedDate } = response.data;
+      const { employee, scanTime, scanCount: count, message: responseMessage, toastMessage } = response.data;
       
       setLastAttendance({
         employee: employee.name,
         time: new Date(scanTime),
-        scanCount: count,
-        formattedTime: formattedTime,
-        formattedDate: formattedDate
+        scanCount: count
       });
       
       setScanCount(count);
       
-      // Show the formatted message with line breaks
       showTemporaryMessage(responseMessage, 'success');
-      
-      // Show toast notification (single line)
       toast.success(toastMessage || `Scan recorded for ${employee.name}`);
       
       // Reset scanning state after 3 seconds
@@ -124,7 +200,7 @@ const FaceRecognition = () => {
       setIsScanning(false);
       setIsProcessing(false);
     }
-  }, [modelsLoaded, isProcessing, isScanning, getFaceDescriptor, API_URL, showTemporaryMessage]);
+  }, [modelsLoaded, isProcessing, isScanning, getFaceInfo, API_URL, showTemporaryMessage]);
 
   // Set up automatic scanning interval
   useEffect(() => {
@@ -132,12 +208,20 @@ const FaceRecognition = () => {
     if (modelsLoaded && !isScanning && !isProcessing) {
       scanInterval = setInterval(() => {
         autoScanFace();
-      }, 4000); // Scan every 4 seconds
+      }, 2000); // Scan every 2 seconds (faster for better UX)
     }
     return () => {
       if (scanInterval) clearInterval(scanInterval);
     };
   }, [modelsLoaded, isScanning, isProcessing, autoScanFace]);
+
+  // Get distance indicator color
+  const getDistanceColor = () => {
+    if (!faceDistance) return 'bg-gray-500';
+    if (faceDistance.isClose) return 'bg-green-500';
+    if (faceDistance.level === 'medium') return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
@@ -172,14 +256,14 @@ const FaceRecognition = () => {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Floating Message with Line Break Support */}
+        {/* Floating Message */}
         {showMessage && (
           <div className={`fixed top-24 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300 ${
             messageType === 'success' ? 'bg-green-500' : 'bg-red-500'
-          } text-white px-6 py-4 rounded-lg shadow-lg max-w-md`}>
-            <div className="flex items-start space-x-3">
-              {messageType === 'success' ? <Smile className="w-5 h-5 mt-0.5 flex-shrink-0" /> : <XCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />}
-              <div className="whitespace-pre-line text-sm font-medium">{message}</div>
+          } text-white px-6 py-3 rounded-lg shadow-lg animate-bounce max-w-md`}>
+            <div className="flex items-center space-x-2">
+              {messageType === 'success' ? <Smile className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+              <span className="font-medium whitespace-pre-line">{message}</span>
             </div>
           </div>
         )}
@@ -195,11 +279,66 @@ const FaceRecognition = () => {
               mirrored={true}
             />
             
+            {/* Face Distance Indicator Overlay */}
+            {faceDistance && (
+              <div className="absolute top-4 left-4 bg-black bg-opacity-70 rounded-lg px-3 py-2">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-3 h-3 rounded-full ${getDistanceColor()} animate-pulse`}></div>
+                  <span className="text-white text-sm">{faceDistance.message}</span>
+                </div>
+                <div className="text-white text-xs mt-1">
+                  Face size: {Math.round(faceDistance.area)}px
+                </div>
+              </div>
+            )}
+            
+            {/* Face Bounding Box - Visual feedback */}
+            {faceBox && !isFaceClose && (
+              <div className="absolute border-2 border-yellow-500 rounded-lg animate-pulse"
+                style={{
+                  top: faceBox.top,
+                  left: faceBox.left,
+                  width: faceBox.width,
+                  height: faceBox.height,
+                  pointerEvents: 'none'
+                }}>
+                <div className="absolute -top-6 left-0 bg-yellow-500 text-white text-xs px-2 py-1 rounded">
+                  Move Closer
+                </div>
+              </div>
+            )}
+            
+            {/* Face Bounding Box - Close enough */}
+            {faceBox && isFaceClose && !isScanning && !isProcessing && (
+              <div className="absolute border-2 border-green-500 rounded-lg"
+                style={{
+                  top: faceBox.top,
+                  left: faceBox.left,
+                  width: faceBox.width,
+                  height: faceBox.height,
+                  pointerEvents: 'none'
+                }}>
+                <div className="absolute -top-6 left-0 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                  ✓ Ready to Scan
+                </div>
+              </div>
+            )}
+            
             {/* Scanning Overlay - Animated ring */}
-            {modelsLoaded && !isScanning && !isProcessing && (
+            {modelsLoaded && !isScanning && !isProcessing && !isFaceClose && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="border-4 border-blue-500 rounded-full w-56 h-56 animate-ping opacity-60"></div>
-                <div className="absolute border-2 border-blue-300 rounded-full w-64 h-64 animate-pulse opacity-40"></div>
+                <div className="bg-black bg-opacity-50 rounded-full p-8 text-center">
+                  <ZoomIn className="w-12 h-12 text-white mx-auto mb-2 animate-bounce" />
+                  <p className="text-white text-sm">Move closer to camera</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Scanning Overlay - Ready to scan */}
+            {modelsLoaded && !isScanning && !isProcessing && isFaceClose && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="border-4 border-green-500 rounded-full w-56 h-56 animate-ping opacity-60"></div>
+                <div className="absolute border-2 border-green-300 rounded-full w-64 h-64 animate-pulse opacity-40"></div>
               </div>
             )}
             
@@ -212,9 +351,23 @@ const FaceRecognition = () => {
             )}
             
             {/* Status Message */}
-            {!isScanning && modelsLoaded && !isProcessing && (
+            {!isScanning && modelsLoaded && !isProcessing && isFaceClose && (
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-green-600 bg-opacity-90 text-white px-4 py-2 rounded-full text-sm flex items-center whitespace-nowrap">
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse mr-2"></div>
+                Face detected - Ready to scan!
+              </div>
+            )}
+            
+            {!isScanning && modelsLoaded && !isProcessing && !isFaceClose && faceDistance && (
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-yellow-600 bg-opacity-90 text-white px-4 py-2 rounded-full text-sm flex items-center whitespace-nowrap">
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse mr-2"></div>
+                {faceDistance.message || 'Move closer to camera'}
+              </div>
+            )}
+            
+            {!isScanning && modelsLoaded && !isProcessing && !faceDistance && (
               <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white px-4 py-2 rounded-full text-sm flex items-center whitespace-nowrap">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse mr-2"></div>
                 Looking for face...
               </div>
             )}
@@ -240,8 +393,30 @@ const FaceRecognition = () => {
           <div className="p-6 text-center bg-gradient-to-r from-blue-50 to-purple-50">
             <p className="text-gray-600 flex items-center justify-center">
               <Activity className="w-4 h-4 mr-2 text-blue-500" />
-              {modelsLoaded ? 'Camera is active - Face will be detected automatically' : 'Initializing camera and models...'}
+              {modelsLoaded ? 'Come closer to camera for automatic recognition' : 'Initializing camera and models...'}
             </p>
+          </div>
+        </div>
+
+        {/* Distance Guide */}
+        <div className="mt-6 bg-white rounded-lg p-4 shadow">
+          <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+            <ZoomIn className="w-4 h-4 mr-2 text-blue-500" />
+            Face Distance Guide
+          </h3>
+          <div className="flex flex-col sm:flex-row justify-around gap-4">
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-red-500 rounded-full"></div>
+              <span className="text-sm text-gray-600">Too Far - Move Closer</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
+              <span className="text-sm text-gray-600">Getting There - Come Closer</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 bg-green-500 rounded-full"></div>
+              <span className="text-sm text-gray-600">Perfect Distance - Auto Scan</span>
+            </div>
           </div>
         </div>
 
@@ -260,8 +435,8 @@ const FaceRecognition = () => {
                     <p className="text-green-700">📊 Today's Scans: {lastAttendance.scanCount}</p>
                   </div>
                   <div>
-                    <p className="text-green-700">⏰ Time: {lastAttendance.formattedTime || lastAttendance.time?.toLocaleTimeString()}</p>
-                    <p className="text-green-700">📅 Date: {lastAttendance.formattedDate || lastAttendance.time?.toLocaleDateString()}</p>
+                    <p className="text-green-700">⏰ Time: {lastAttendance.time.toLocaleTimeString()}</p>
+                    <p className="text-green-700">📅 Date: {lastAttendance.time.toLocaleDateString()}</p>
                   </div>
                 </div>
               </div>
@@ -285,11 +460,11 @@ const FaceRecognition = () => {
             How it works
           </h3>
           <ul className="text-sm text-blue-700 space-y-1">
-            <li>• 📸 Simply look at the camera - attendance is automatic</li>
-            <li>• 🔄 Each face scan creates a new attendance record</li>
-            <li>• 💡 Ensure good lighting and remove glasses/masks if possible</li>
-            <li>• ✨ You'll see a success message when scan is recorded</li>
-            <li>• 📊 Multiple scans per day are allowed and tracked</li>
+            <li>• 📸 Look at the camera and move closer until the box turns GREEN</li>
+            <li>• 🎯 Face must be close enough for accurate recognition</li>
+            <li>• 🔄 Scan happens automatically when face is at correct distance</li>
+            <li>• 💡 Ensure good lighting for best results</li>
+            <li>• ✨ Green box = Ready to scan</li>
           </ul>
         </div>
 
@@ -297,13 +472,15 @@ const FaceRecognition = () => {
         <div className="mt-6 grid grid-cols-2 gap-4">
           <div className="bg-white rounded-lg p-4 shadow text-center">
             <div className="text-green-600 font-semibold">Auto Scan</div>
-            <div className="text-2xl font-bold text-gray-800">Active</div>
-            <div className="text-xs text-gray-500">No button needed</div>
+            <div className="text-2xl font-bold text-gray-800">{isFaceClose ? 'Active' : 'Waiting'}</div>
+            <div className="text-xs text-gray-500">Face must be close</div>
           </div>
           <div className="bg-white rounded-lg p-4 shadow text-center">
-            <div className="text-blue-600 font-semibold">Today's Scans</div>
-            <div className="text-2xl font-bold text-gray-800">{scanCount}</div>
-            <div className="text-xs text-gray-500">This session only</div>
+            <div className="text-blue-600 font-semibold">Face Distance</div>
+            <div className="text-2xl font-bold text-gray-800">
+              {faceDistance ? Math.round(faceDistance.area) : 0}
+            </div>
+            <div className="text-xs text-gray-500">Target: 200+ pixels</div>
           </div>
         </div>
       </div>
